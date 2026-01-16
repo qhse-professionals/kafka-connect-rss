@@ -28,8 +28,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
-public class StandaloneKafkaConnect {
-    private static final Logger logger = LoggerFactory.getLogger(StandaloneKafkaConnect.class);
+public class StandaloneKafkaConnectTest {
+    private static final Logger logger = LoggerFactory.getLogger(StandaloneKafkaConnectTest.class);
 
     private Thread connectThread;
     private CountDownLatch stopLatch;
@@ -39,7 +39,7 @@ public class StandaloneKafkaConnect {
     private final String urls;
     private final String bootstrapServer;
 
-    public StandaloneKafkaConnect(String offsetsFilename, int maxTasks, String urls, String bootstrapServer) {
+    public StandaloneKafkaConnectTest(String offsetsFilename, int maxTasks, String urls, String bootstrapServer) {
         this.offsetsFilename = offsetsFilename;
         this.maxTasks = maxTasks;
         this.urls = urls;
