@@ -62,6 +62,7 @@ public class StandaloneKafkaConnect {
 
             //RestServer rest = new RestServer(config);
             ConnectRestServer rest = new ConnectRestServer(config);
+            
             rest.initializeServer();
 
             URI advertisedUrl = rest.advertisedUrl();
