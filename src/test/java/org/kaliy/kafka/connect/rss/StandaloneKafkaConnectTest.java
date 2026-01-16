@@ -57,7 +57,8 @@ public class StandaloneKafkaConnectTest {
             StandaloneConfig config = new StandaloneConfig(workerProps);
 
             // Get Kafka cluster id using Connect utils (works on 4.1)
-            final String kafkaClusterId = ConnectUtils.lookupKafkaClusterId(config.originals());
+            //final String kafkaClusterId = ConnectUtils.lookupKafkaClusterId(config.originals());
+            final String kafkaClusterId = "standalone-cluster";
 
             // REST server (4.1-era signature: port + RestClient + propsMap)
             int port = 8083;
