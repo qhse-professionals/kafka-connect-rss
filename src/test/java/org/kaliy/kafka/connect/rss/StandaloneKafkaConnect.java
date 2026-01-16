@@ -60,6 +60,7 @@ public class StandaloneKafkaConnect {
 
             Plugins plugins = new Plugins(workerProps);
             plugins.compareAndSwapWithDelegatingLoader();
+
             StandaloneConfig cfg = new StandaloneConfig(workerProps);            
             // cfg is your StandaloneConfig (extends WorkerConfig)
 
@@ -67,18 +68,9 @@ public class StandaloneKafkaConnect {
             try (Admin admin = Admin.create(cfg.originals())) {
                 clusterId = admin.describeCluster().clusterId().get(30, TimeUnit.SECONDS);
 }
-            // Prepare minimal REST config (can be empty for tests)
-            Map<String, Object> restProps = new HashMap<>();
-            RestServerConfig restServerConfig = new RestServerConfig(restProps);
-
-            // Build the RestClient from a config (RestClient accepts AbstractConfig)
-            RestClient restClient = new RestClient(restServerConfig);
-
-            // Pick a port (e.g., 8083 for local tests)
-            int port = 8083;
-
-            // Now create the server with the new signature
-            ConnectRestServer rest = new ConnectRestServer(port, restClient, Collections.emptyMap());
+            int port = 8083; // pick a test port (or read from props)
+            RestClient restClient = new RestClient(cfg);               // <-- use your StandaloneConfig here
+            ConnectRestServer rest = new ConnectRestServer(port, restClient, java.util.Collections.emptyMap());
            
             rest.initializeServer();
 
