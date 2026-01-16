@@ -60,9 +60,9 @@ public class StandaloneKafkaConnect {
 
             Plugins plugins = new Plugins(workerProps);
             plugins.compareAndSwapWithDelegatingLoader();
-            StandaloneConfig config = new StandaloneConfig(workerProps);
-            
+            StandaloneConfig cfg = new StandaloneConfig(workerProps);            
             // cfg is your StandaloneConfig (extends WorkerConfig)
+
             String clusterId;
             try (Admin admin = Admin.create(cfg.originals())) {
                 clusterId = admin.describeCluster().clusterId().get(30, TimeUnit.SECONDS);
