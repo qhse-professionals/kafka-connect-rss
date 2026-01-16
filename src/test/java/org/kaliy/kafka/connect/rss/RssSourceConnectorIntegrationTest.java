@@ -47,7 +47,7 @@ class RssSourceConnectorIntegrationTest {
     private static final String ATOM = "http://localhost:8888/feed.atom";
     private static final String RSS = "http://localhost:8888/feed.rss";
     private static final String URLS = ATOM + " " + RSS;
-    private StandaloneKafkaConnect standaloneKafkaConnect;
+    private StandaloneKafkaConnectTest standaloneKafkaConnect;
 
     @BeforeAll
     static void beforeAll() {
@@ -57,7 +57,7 @@ class RssSourceConnectorIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        standaloneKafkaConnect = new StandaloneKafkaConnect("target/" + UUID.randomUUID(), 2, URLS, kafkaContainer.getBootstrapServers());
+        standaloneKafkaConnect = new StandaloneKafkaConnectTest("target/" + UUID.randomUUID(), 2, URLS, kafkaContainer.getBootstrapServers());
         wireMockServer.stubFor(get("/feed.atom").willReturn(aResponse().withBody(read("integration-test/input-1.atom"))));
         wireMockServer.stubFor(get("/feed.rss").willReturn(aResponse().withBody(read("integration-test/input-1.rss"))));
     }
@@ -100,7 +100,7 @@ class RssSourceConnectorIntegrationTest {
         Consumer<String, String> consumer = createConsumer();
 
         String offsetsFilename = "target/" + UUID.randomUUID();
-        standaloneKafkaConnect = new StandaloneKafkaConnect(offsetsFilename, 1, URLS, kafkaContainer.getBootstrapServers());
+        standaloneKafkaConnect = new StandaloneKafkaConnectTest(offsetsFilename, 1, URLS, kafkaContainer.getBootstrapServers());
         standaloneKafkaConnect.start();
 
         List<ConsumerRecord> consumerRecords = new ArrayList<>();
@@ -178,7 +178,7 @@ class RssSourceConnectorIntegrationTest {
         Consumer<String, String> consumer = createConsumer();
 
         String offsetsFilename = "target/" + UUID.randomUUID();
-        standaloneKafkaConnect = new StandaloneKafkaConnect(offsetsFilename, 2, URLS, kafkaContainer.getBootstrapServers());
+        standaloneKafkaConnect = new StandaloneKafkaConnectTest(offsetsFilename, 2, URLS, kafkaContainer.getBootstrapServers());
         standaloneKafkaConnect.start();
 
         List<ConsumerRecord> consumerRecords = new ArrayList<>();
