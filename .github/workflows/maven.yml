@@ -14,6 +14,10 @@ on:
   pull_request:
     branches: [ "master" ]
 
+env:
+  TESTCONTAINERS_ENABLED: false
+  JDK_JAVA_OPTIONS: --add-opens=java.base/java.lang=ALL-UNNAMED
+
 jobs:
   build:
 
