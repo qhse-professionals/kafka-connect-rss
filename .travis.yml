@@ -6,7 +6,7 @@ jdk:
   - openjdk17
 
 script:
-  - mvn verify
+  - mvn --add-opens=java.base/java.lang=ALL-UNNAMED verify
 
 cache:
   directories:
