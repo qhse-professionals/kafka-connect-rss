@@ -1,5 +1,6 @@
 package org.kaliy.kafka.connect.rss;
 
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.connector.policy.ConnectorClientConfigOverridePolicy;
 import org.apache.kafka.connect.runtime.Connect;
@@ -11,6 +12,8 @@ import org.apache.kafka.connect.runtime.isolation.Plugins;
 import org.apache.kafka.connect.runtime.rest.ConnectRestServer;
 import org.apache.kafka.connect.runtime.rest.RestServer;
 import org.apache.kafka.connect.runtime.rest.entities.ConnectorInfo;
+import org.apache.kafka.connect.runtime.rest.RestClient;
+import org.apache.kafka.connect.runtime.rest.RestServerConfig;
 import org.apache.kafka.connect.runtime.standalone.StandaloneConfig;
 import org.apache.kafka.connect.runtime.standalone.StandaloneHerder;
 import org.apache.kafka.connect.storage.FileOffsetBackingStore;
@@ -21,9 +24,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.net.URI;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * This class is based on the kafka-connect-standalone CLI utility code
@@ -57,12 +62,24 @@ public class StandaloneKafkaConnect {
             plugins.compareAndSwapWithDelegatingLoader();
             StandaloneConfig config = new StandaloneConfig(workerProps);
             
-            String clusterId = ConnectUtils.lookupKafkaClusterId((WorkerConfig) config);
-            //String kafkaClusterId = ConnectUtils.lookupKafkaClusterId(config);
+            // cfg is your StandaloneConfig (extends WorkerConfig)
+            String clusterId;
+            try (Admin admin = Admin.create(cfg.originals())) {
+                clusterId = admin.describeCluster().clusterId().get(30, TimeUnit.SECONDS);
+}
+            // Prepare minimal REST config (can be empty for tests)
+            Map<String, Object> restProps = new HashMap<>();
+            RestServerConfig restServerConfig = new RestServerConfig(restProps);
 
-            //RestServer rest = new RestServer(config);
-            ConnectRestServer rest = new ConnectRestServer(config);
-            
+            // Build the RestClient from a config (RestClient accepts AbstractConfig)
+            RestClient restClient = new RestClient(restServerConfig);
+
+            // Pick a port (e.g., 8083 for local tests)
+            int port = 8083;
+
+            // Now create the server with the new signature
+            ConnectRestServer rest = new ConnectRestServer(port, restClient, Collections.emptyMap());
+           
             rest.initializeServer();
 
             URI advertisedUrl = rest.advertisedUrl();
