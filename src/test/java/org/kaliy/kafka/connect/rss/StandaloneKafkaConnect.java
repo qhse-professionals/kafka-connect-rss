@@ -1,8 +1,6 @@
-package org.kaliy.kafka.connect.rss;
 
-import org.apache.kafka.clients.admin.Admin;
-import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.connector.policy.ConnectorClientConfigOverridePolicy;
+import org.apache.kafka.connect.json.JsonConverter;
 import org.apache.kafka.connect.runtime.Connect;
 import org.apache.kafka.connect.runtime.ConnectorConfig;
 import org.apache.kafka.connect.runtime.Herder;
@@ -10,14 +8,11 @@ import org.apache.kafka.connect.runtime.Worker;
 import org.apache.kafka.connect.runtime.WorkerConfig;
 import org.apache.kafka.connect.runtime.isolation.Plugins;
 import org.apache.kafka.connect.runtime.rest.ConnectRestServer;
-import org.apache.kafka.connect.runtime.rest.RestServer;
-import org.apache.kafka.connect.runtime.rest.entities.ConnectorInfo;
 import org.apache.kafka.connect.runtime.rest.RestClient;
-import org.apache.kafka.connect.runtime.rest.RestServerConfig;
+import org.apache.kafka.connect.runtime.rest.entities.ConnectorInfo;
 import org.apache.kafka.connect.runtime.standalone.StandaloneConfig;
 import org.apache.kafka.connect.runtime.standalone.StandaloneHerder;
 import org.apache.kafka.connect.storage.FileOffsetBackingStore;
-import org.apache.kafka.connect.util.ConnectUtils;
 import org.apache.kafka.connect.util.FutureCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,9 +26,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * This class is based on the kafka-connect-standalone CLI utility code
- *
- * @see org.apache.kafka.connect.cli.ConnectStandalone
+ * Embedded standalone Kafka Connect runner for an RSS connector.
+ * Compatible with Kafka/Connect 4.1.
  */
 public class StandaloneKafkaConnect {
     private static final Logger logger = LoggerFactory.getLogger(StandaloneKafkaConnect.class);
@@ -56,113 +50,178 @@ public class StandaloneKafkaConnect {
     public void start() {
         stopLatch = new CountDownLatch(1);
         connectThread = new Thread(() -> {
+            // 1) Worker/Plugin setup
             Map<String, String> workerProps = workerProps();
-
             Plugins plugins = new Plugins(workerProps);
             plugins.compareAndSwapWithDelegatingLoader();
 
-            StandaloneConfig cfg = new StandaloneConfig(workerProps);            
-            // cfg is your StandaloneConfig (extends WorkerConfig)
+            StandaloneConfig config = new StandaloneConfig(workerProps);
 
-            String clusterId;
-            try (Admin admin = Admin.create(cfg.originals())) {
-                clusterId = admin.describeCluster().clusterId().get(30, TimeUnit.SECONDS);
-}
-            int port = 8083; // pick a test port (or read from props)
-            RestClient restClient = new RestClient(cfg);               // <-- use your StandaloneConfig here
-            ConnectRestServer rest = new ConnectRestServer(port, restClient, java.util.Collections.emptyMap());
-           
-            rest.initializeServer();
+            // 2) Discover Kafka cluster ID
+            final String kafkaClusterId;
+            try (Admin admin = Admin.create(config.originals())) {
+                kafkaClusterId = admin.describeCluster()
+                        .clusterId()
+                        .get(30, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                logger.error("Failed to obtain Kafka cluster ID", e);
+                return;
+            }
+
+            // 3) REST server
+            RestClient restClient = new RestClient(config);
+            ConnectRestServer rest = new ConnectRestServer(config, restClient, Collections.emptyMap());
+            try {
+                rest.initializeServer();
+            } catch (Exception e) {
+                logger.error("Failed to initialize Connect REST server", e);
+                return;
+            }
 
             URI advertisedUrl = rest.advertisedUrl();
             String workerId = advertisedUrl.getHost() + ":" + advertisedUrl.getPort();
 
-            ConnectorClientConfigOverridePolicy connectorClientConfigOverridePolicy = plugins.newPlugin(
-                    config.getString(WorkerConfig.CONNECTOR_CLIENT_POLICY_CLASS_CONFIG),
-                    config, ConnectorClientConfigOverridePolicy.class
-            );
-            Worker worker = new Worker(workerId, Time.SYSTEM, plugins, config, new FileOffsetBackingStore(), connectorClientConfigOverridePolicy);
+            // 4) Policy for connector client config overrides
+            ConnectorClientConfigOverridePolicy connectorClientConfigOverridePolicy =
+                    plugins.newPlugin(
+                            config.getString(WorkerConfig.CONNECTOR_CLIENT_POLICY_CLASS_CONFIG),
+                            config,
+                            ConnectorClientConfigOverridePolicy.class
+                    );
 
+            // 5) Offset store
+            FileOffsetBackingStore offsetStore = new FileOffsetBackingStore();
+            try {
+                offsetStore.configure(config);
+                offsetStore.start();
+            } catch (Exception e) {
+                logger.error("Failed to start FileOffsetBackingStore", e);
+                return;
+            }
+
+            // 6) Worker
+            Worker worker = new Worker(
+                    workerId,
+                    Time.SYSTEM,
+                    plugins,
+                    config,
+                    offsetStore,
+                    connectorClientConfigOverridePolicy
+            );
+
+            // 7) Herder & Connect runtime
             Herder herder = new StandaloneHerder(worker, kafkaClusterId, connectorClientConfigOverridePolicy);
             final Connect connect = new Connect(herder, rest);
 
-            logger.info("Kafka Connect standalone worker has been initialized");
+            logger.info("Kafka Connect standalone worker has been initialized at {}", advertisedUrl);
 
             try {
                 connect.start();
+
+                // 8) Create our connector
                 Map<String, String> connectorProps = connectorProps();
                 FutureCallback<Herder.Created<ConnectorInfo>> cb = new FutureCallback<>((error, info) -> {
                     if (error != null) {
-                        logger.error("Failed to create job", error);
+                        logger.error("Failed to create connector", error);
                     } else {
                         logger.info("Created connector {}", info.result().name());
                     }
                 });
+
                 herder.putConnectorConfig(
                         connectorProps.get(ConnectorConfig.NAME_CONFIG),
-                        connectorProps, false, cb);
+                        connectorProps,
+                        false,
+                        cb
+                );
                 cb.get();
-            } catch (Throwable t) {
-                logger.error("Stopping after connector error", t);
-                connect.stop();
-                connect.awaitStop();
-            }
-            try {
-                stopLatch.await();
-            } catch (InterruptedException e) {
-                logger.info("Connect thread has been interrupted, stopping.");
-                connect.stop();
-                connect.awaitStop();
-            }
-            connect.stop();
-            connect.awaitStop();
-        });
 
+                // 9) Block until stopped
+                stopLatch.await();
+
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                logger.warn("Connect thread interrupted, stopping.");
+            } catch (Throwable t) {
+                logger.error("Error while running Kafka Connect", t);
+            } finally {
+                try {
+                    connect.stop();
+                    connect.awaitStop();
+                } catch (Exception e) {
+                    logger.warn("Error stopping Connect", e);
+                }
+                try {
+                    offsetStore.stop();
+                } catch (Exception e) {
+                    logger.warn("Error stopping FileOffsetBackingStore", e);
+                }
+                try {
+                    rest.stop();
+                } catch (Exception e) {
+                    logger.warn("Error stopping REST server", e);
+                }
+                logger.info("Kafka Connect standalone worker has been stopped");
+            }
+        }, "embedded-connect-thread");
+
+        connectThread.setDaemon(true);
         connectThread.start();
     }
 
     public void stop() {
-        stopLatch.countDown();
-        while (connectThread.isAlive()) {
-            logger.info("Waiting for the kafka connect to stop");
+        if (stopLatch != null) {
+            stopLatch.countDown();
+        }
+        if (connectThread != null) {
             try {
-                Thread.sleep(100);
+                connectThread.join(10_000);
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted while waiting for Connect thread to stop");
             }
         }
     }
 
     public void deleteOffsetsFile() {
-        new File(offsetsFilename).delete();
+        // Using the field here eliminates any “write-only” warning for offsetsFilename
+        if (!new File(offsetsFilename).delete()) {
+            logger.debug("Offsets file {} did not exist or could not be deleted", offsetsFilename);
+        }
     }
 
     private Map<String, String> workerProps() {
-        Map<String, String> workerProps = new HashMap<>();
-        workerProps.put("bootstrap.servers", bootstrapServer);
-        workerProps.put("key.converter", "org.apache.kafka.connect.json.JsonConverter");
-        workerProps.put("key.converter.schemas.enable", "true");
-        workerProps.put("value.converter", "org.apache.kafka.connect.json.JsonConverter");
-        workerProps.put("value.converter.schemas.enable", "true");
-        workerProps.put("internal.key.converter", "org.apache.kafka.connect.json.JsonConverter");
-        workerProps.put("internal.key.converter.schemas.enable", "true");
-        workerProps.put("internal.value.converter", "org.apache.kafka.connect.json.JsonConverter");
-        workerProps.put("internal.value.converter.schemas.enable", "true");
-        workerProps.put("rest.port", "8086");
-        workerProps.put("rest.host.name", "127.0.0.1");
-        workerProps.put("offset.storage.file.filename", offsetsFilename);
-        workerProps.put("offset.flush.interval.ms", "10000");
-        return workerProps;
+        Map<String, String> p = new HashMap<>();
+        p.put("bootstrap.servers", bootstrapServer);
+
+        // Converters
+        p.put("key.converter", JsonConverter.class.getName());
+        p.put("value.converter", JsonConverter.class.getName());
+        p.put("internal.key.converter", JsonConverter.class.getName());
+        p.put("internal.value.converter", JsonConverter.class.getName());
+        p.put("key.converter.schemas.enable", "true");
+        p.put("value.converter.schemas.enable", "true");
+        p.put("internal.key.converter.schemas.enable", "true");
+        p.put("internal.value.converter.schemas.enable", "true");
+
+        // REST (you can override via props if needed)
+        p.put("rest.port", "8086");
+        p.put("rest.host.name", "127.0.0.1");
+
+        // Offsets file
+        p.put("offset.storage.file.filename", offsetsFilename);
+        p.put("offset.flush.interval.ms", "10000");
+        return p;
     }
 
     private Map<String, String> connectorProps() {
-        Map<String, String> workerProps = new HashMap<>();
-        workerProps.put("name", "RssSourceConnectorDemo");
-        workerProps.put("tasks.max", Integer.toString(maxTasks));
-        workerProps.put("sleep.seconds", "2");
-        workerProps.put("connector.class", "org.kaliy.kafka.connect.rss.RssSourceConnector");
-        workerProps.put("rss.urls", urls);
-        workerProps.put("topic", "test_topic");
-        return workerProps;
+        Map<String, String> p = new HashMap<>();
+        p.put("name", "RssSourceConnectorDemo");
+        p.put("tasks.max", Integer.toString(maxTasks));
+        p.put("sleep.seconds", "2");
+        p.put("connector.class", "org.kaliy.kafka.connect.rss.RssSourceConnector");
+        p.put("rss.urls", urls);
+        p.put("topic", "test_topic");
+        return p;
     }
 }
