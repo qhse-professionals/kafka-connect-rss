@@ -8,6 +8,7 @@ import org.apache.kafka.connect.runtime.Herder;
 import org.apache.kafka.connect.runtime.Worker;
 import org.apache.kafka.connect.runtime.WorkerConfig;
 import org.apache.kafka.connect.runtime.isolation.Plugins;
+import org.apache.kafka.connect.runtime.rest.ConnectRestServer;
 import org.apache.kafka.connect.runtime.rest.RestServer;
 import org.apache.kafka.connect.runtime.rest.entities.ConnectorInfo;
 import org.apache.kafka.connect.runtime.standalone.StandaloneConfig;
@@ -59,7 +60,8 @@ public class StandaloneKafkaConnect {
             String clusterId = ConnectUtils.lookupKafkaClusterId((WorkerConfig) config);
             //String kafkaClusterId = ConnectUtils.lookupKafkaClusterId(config);
 
-            RestServer rest = new RestServer(config);
+            //RestServer rest = new RestServer(config);
+            ConnectRestServer rest = new ConnectRestServer(config);
             rest.initializeServer();
 
             URI advertisedUrl = rest.advertisedUrl();
