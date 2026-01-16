@@ -55,8 +55,9 @@ public class StandaloneKafkaConnect {
             Plugins plugins = new Plugins(workerProps);
             plugins.compareAndSwapWithDelegatingLoader();
             StandaloneConfig config = new StandaloneConfig(workerProps);
-
-            String kafkaClusterId = ConnectUtils.lookupKafkaClusterId(config);
+            
+            String clusterId = ConnectUtils.lookupKafkaClusterId((WorkerConfig) config);
+            //String kafkaClusterId = ConnectUtils.lookupKafkaClusterId(config);
 
             RestServer rest = new RestServer(config);
             rest.initializeServer();
